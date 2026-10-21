@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FlowDetect SOC — Real-Time ONNX Intrusion Detection</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!-- TOP LIVE THREAT ALERT BANNER (Flashes live on Teacher's Phone & Laptop!) -->
+  <div id="threat-banner" class="banner banner-safe">
+    <div class="banner-inner">
+      <div class="banner-status">
+        <span id="banner-icon" class="pulse-dot dot-green"></span>
+        <div>
+          <strong id="banner-title">SYSTEM PROTECTED — MONITORING LIVE NETWORK FLOWS</strong>
+          <div id="banner-sub" class="banner-sub">
+            Waiting for live packets or HTTP streams — Gate rule: <code>(1 - P(Benign)) &ge; &tau;</code>
+          </div>
+        </div>
+      </div>
+      <div class="banner-actions">
+        <button id="btn-open-lab" class="btn btn-accent">Manual 27-Feature Tester</button>
+        <button id="btn-sound" class="btn btn-ghost" title="Play audio warning chime on attack">
+          Sound Alert: OFF
+        </button>
+        <button id="btn-reset" class="btn btn-ghost">Reset Stream</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- HEADER BAR -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-badge">FD</div>
+      <div>
+        <h1>FlowDetect Live NIDS Dashboard</h1>
+        <p class="subtitle">FastAPI (:8000) &bull; Scapy + ASGI 27-Feature Collector &bull; Dual ONNX Runtime (:9012)</p>
+      </div>
+    </div>
+    <div class="meta-pills">
+      <span id="ws-pill" class="pill pill-warn">WS Connecting...</span>
+      <span id="os-pill" class="pill">OS: Detecting...</span>
+      <span id="lan-pill" class="pill pill-accent" title="Click to copy link for devices on the same Wi-Fi hotspot">
+        Wi-Fi Share URL: loading...
+      </span>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- KPI CARDS: 4 MODEL CLASSES + TOTAL FLOWS -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <span class="kpi-label">Flows Scored</span>
+        <strong id="kpi-total" class="kpi-value">0</strong>
+        <span id="kpi-pkts" class="kpi-foot">0 segments processed</span>
+      </div>
+      <div class="kpi-card kpi-benign">
+        <span class="kpi-label">Benign (Class 0)</span>
+        <strong id="kpi-benign" class="kpi-value">0</strong>
+        <span class="kpi-foot">Normal human traffic</span>
+      </div>
+      <div class="kpi-card kpi-flood">
+        <span class="kpi-label">Flood (Class 3)</span>
+        <strong id="kpi-flood" class="kpi-value">0</strong>
+        <span class="kpi-foot">HTTP / TCP / DoS bursts</span>
+      </div>
+      <div class="kpi-card kpi-bruteforce">
+        <span class="kpi-label">BruteForce (Class 2)</span>
+        <strong id="kpi-bruteforce" class="kpi-value">0</strong>
+        <span class="kpi-foot">Login credential sprays</span>
+      </div>
+      <div class="kpi-card kpi-bot">
+        <span class="kpi-label">Bot (Class 1)</span>
+        <strong id="kpi-bot" class="kpi-value">0</strong>
+        <span class="kpi-foot">C2 beacons &amp; scrapers</span>
+      </div>
+    </section>
+
+    <!-- LIVE 60FPS ANIMATED NETWORK TOPOLOGY PIPELINE BAR -->
+    <section class="panel topology-panel">
+      <div class="panel-header compact-header">
+        <h2>Live Packet-to-ONNX Pipeline Telemetry (60 FPS Canvas Stream)</h2>
+        <span id="cli-copy-btn" class="pill pill-click" title="Copy CLI Attack Simulator command">
+          Copy CLI Attack Command
+        </span>
+      </div>
+      <canvas id="topology-canvas" width="1280" height="86"></canvas>
+    </section>
+
+    <!-- CONTROLS + LIVE SIMULATOR + REAL-TIME CANVAS CHART -->
+    <section class="mid-grid">
+      <!-- LEFT: MODEL & DEFENSE ENGINE CONTROLS -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>1. Detection Engine &amp; Viva Comparison Controls</h2>
+        </div>
+
+        <div class="control-group">
+          <label class="group-label">Active ONNX Model (Compare Original vs Fixed Live):</label>
+          <div class="seg-toggle">
+            <button id="mode-v2" class="seg-btn active">
+              v2 Fixed Live ONNX + Host Guard
+            </button>
+            <button id="mode-v1" class="seg-btn">
+              v1 Original Wormhole model.onnx
+            </button>
+          </div>
+          <p id="model-explain" class="hint-text">
+            <strong>v2 Active:</strong> Regularized <code>HistGradientBoosting</code> (<code>l2=1.5</code>, max leaf <code>0.32</code>) + cross-flow telemetry. Accurately detects live Wi-Fi &amp; Cloud attacks AND CICIDS2017 traces.
+          </p>
+        </div>
+
+        <div class="control-group">
+          <label class="group-label">Response Action When Attack Crosses Gate (&tau;):</label>
+          <div class="seg-toggle">
+            <button id="shield-alert" class="seg-btn active">
+              Alert Warning Only (Live Banner)
+            </button>
+            <button id="shield-enforce" class="seg-btn">
+              Active Shield Block (HTTP 403)
+            </button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-row">
+            <label class="group-label">Decision Gate Threshold (&tau;):</label>
+            <code id="tau-display">0.921056</code>
+          </div>
+          <input id="tau-slider" type="range" min="0.50" max="0.99" step="0.01" value="0.92" />
+          <div class="capture-status-box" id="capture-desc">Checking Scapy / ASGI collector...</div>
+        </div>
+
+        <div id="blocked-container" class="blocked-box hidden">
+          <div class="blocked-title">Actively Blocked Attacker IPs (HTTP 403):</div>
+          <div id="blocked-list" class="blocked-chips"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: LIVE TRAFFIC & ATTACK LAUNCHER + PCAP UPLOAD -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>2. Live Traffic &amp; Attack Launcher (Real HTTP Streams &rarr; Port 8000)</h2>
+        </div>
+        <p class="hint-text">
+          Fires real async HTTP traffic directly through FastAPI middleware &rarr; <code>FlowSession</code> 27-feature extractor &rarr; dual ONNX Runtime &rarr; live WebSocket broadcast to every connected device:
+        </p>
+
+        <div class="sim-buttons">
+          <button class="sim-btn sim-benign" data-sim="benign">
+            <span class="sim-tag">CLASS 0</span>
+            <strong>Normal User Browsing</strong>
+            <small>GET /api/shop/products (human pace)</small>
+          </button>
+          <button class="sim-btn sim-flood" data-sim="flood">
+            <span class="sim-tag">ATTACK &bull; FLOOD</span>
+            <strong>Launch HTTP Flood</strong>
+            <small>36 concurrent burst hits on /api/target/ping</small>
+          </button>
+          <button class="sim-btn sim-bf" data-sim="bruteforce">
+            <span class="sim-tag">ATTACK &bull; BRUTEFORCE</span>
+            <strong>Launch Login Spray</strong>
+            <small>Rapid wordlist POSTs to /api/auth/login</small>
+          </button>
+          <button class="sim-btn sim-bot" data-sim="bot">
+            <span class="sim-tag">ATTACK &bull; BOT</span>
+            <strong>Launch Botnet Beacon</strong>
+            <small>Clockwork 190ms polls to /api/bot/poll</small>
+          </button>
+        </div>
+
+        <div class="divider-row">
+          <span>Replay Authentic CICIDS2017 Lab Traces (Tests v1 vs v2 Parity) &amp; Upload PCAP:</span>
+        </div>
+        <div class="mini-actions">
+          <button class="btn btn-sm" data-sim="cicids_flood">CICIDS Flood Trace</button>
+          <button class="btn btn-sm" data-sim="cicids_bruteforce">CICIDS BruteForce Trace</button>
+          <button class="btn btn-sm" data-sim="cicids_bot">CICIDS Bot Trace</button>
+          <label class="btn btn-sm btn-upload">
+            Upload .pcap File
+            <input id="pcap-input" type="file" accept=".pcap,.pcapng,.cap" hidden />
+          </label>
+        </div>
+
+        <!-- LIVE CANVAS PULSE TELEMETRY -->
+        <div class="chart-wrap">
+          <div class="chart-label">Live Attack Score Stream <code>1 - P(Benign)</code> vs Gate &tau; (Red Line)</div>
+          <canvas id="score-canvas" width="600" height="105"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIVE FLOW TABLE + SIDE-BY-SIDE 27-FEATURE INSPECTOR -->
+    <section class="bottom-grid">
+      <div class="panel table-panel">
+        <div class="panel-header">
+          <h2>3. Real-Time Scored Network Flows (Click Any Row to Inspect All 27 Features)</h2>
+          <span id="table-hint" class="badge-muted">Live WebSocket Feed</span>
+        </div>
+        <div class="table-scroll">
+          <table class="flow-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Source IP</th>
+                <th>Endpoint</th>
+                <th>Pkts</th>
+                <th>Verdict (Active Model)</th>
+                <th>Attack Score</th>
+                <th>v1 Raw vs v2 Fixed</th>
+                <th>Latency</th>
+              </tr>
+            </thead>
+            <tbody id="flow-tbody">
+              <tr class="empty-row">
+                <td colspan="8">No flows scored yet — click any traffic button above or send live requests to Port 8000!</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RIGHT INSPECTOR: 4-CLASS PROBS + ALL 27 EXTRACTED FEATURES -->
+      <div class="panel inspector-panel">
+        <div class="panel-header">
+          <h2>4. Live 27-Feature &amp; Probability Inspector</h2>
+          <button id="btn-edit-selected" class="btn btn-sm hidden">Load into Tester</button>
+        </div>
+        <div id="inspector-empty" class="empty-inspector">
+          Trigger or click a flow row to inspect all 4 class probabilities (<code>Benign</code>, <code>Bot</code>, <code>BruteForce</code>, <code>Flood</code>) and the exact <code>float32[27]</code> vector fed to <code>model.onnx</code>.
+        </div>
+        <div id="inspector-content" class="hidden">
+          <div class="insp-meta" id="insp-header"></div>
+          <div class="prob-bars" id="prob-bars"></div>
+          <h3 class="subhead">Extracted 27 Model Features (<code>X: float32[1, 27]</code>)</h3>
+          <div class="features-grid" id="features-grid"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- INTERACTIVE MANUAL 27-FEATURE SANDBOX MODAL -->
+  <div id="lab-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="panel-header">
+        <h2>Interactive 27-Feature ONNX Sandbox (Direct Tensor Scoring)</h2>
+        <button id="btn-close-lab" class="btn btn-sm">Close</button>
+      </div>
+      <p class="hint-text" style="margin-bottom:10px;">
+        Edit any of the 27 model input features below and run real-time inference on both <code>v1_raw</code> and <code>v2_live</code> ONNX models:
+      </p>
+      <div id="lab-inputs" class="lab-grid"></div>
+      <div class="modal-footer">
+        <button id="btn-run-manual" class="btn btn-accent">Score 27 Features on ONNX Now</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
