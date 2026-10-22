@@ -1,6 +1,7 @@
 /**
- * FlowDetect Live SOC Dashboard Controller (`app.js`)
- * Structured cleanly as modular UI renderers ready for 1:1 React component migration.
+ * FlowDetect Live SOC Controller (`app.js`)
+ * Modular UI controller combining the 3D Obsidian Hero UX with 100% live WebSocket
+ * ONNX flow scoring, 60 FPS pipeline telemetry, score stream chart, and 27-feature sandbox.
  */
 
 const FEATURE_NAMES = [
@@ -20,6 +21,7 @@ const state = {
   scoreHistory: [],
   particles: [],
   tau: 0.921056,
+  totalPkts: 0,
   ws: null,
   toastTimer: null,
 };
@@ -31,12 +33,35 @@ const CLASS_COLORS = {
   Flood: "#ef4444",
 };
 
+/* ---------------- TOAST, LIVE STREAM LOG & WEB AUDIO SYNTH ---------------- */
 function showToast(msg) {
   const el = document.getElementById("toast");
+  if (!el) return;
   el.textContent = msg;
   el.classList.remove("hidden");
   clearTimeout(state.toastTimer);
-  state.toastTimer = setTimeout(() => el.classList.add("hidden"), 3400);
+  state.toastTimer = setTimeout(() => el.classList.add("hidden"), 3200);
+}
+
+function appendStreamLog(message, level = "info") {
+  const log = document.getElementById("live-log");
+  if (!log) return;
+  const now = new Date().toLocaleTimeString("en-GB", { hour12: false });
+  const colorMap = {
+    ok: "#34d399",
+    warn: "#fbbf24",
+    err: "#f87171",
+    bot: "#c084fc",
+    info: "#a1a7b3",
+  };
+  const line = document.createElement("div");
+  line.className = "log-line";
+  line.innerHTML = `<span class="log-time">[${now}]</span><span style="color:${colorMap[level] || colorMap.info}">${message}</span>`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+  while (log.children.length > 80) {
+    log.removeChild(log.firstChild);
+  }
 }
 
 function playAlertTone() {
@@ -58,46 +83,219 @@ function playAlertTone() {
   } catch (_) {}
 }
 
+function pulseHeroCore(cls, isAlert) {
+  const coreWrap = document.getElementById("coreWrap");
+  if (!coreWrap) return;
+  const col = CLASS_COLORS[cls] || "#ffffff";
+  coreWrap.style.filter = isAlert
+    ? `brightness(1.45) drop-shadow(0 0 28px ${col})`
+    : `brightness(1.18) drop-shadow(0 0 16px rgba(16,185,129,0.45))`;
+  setTimeout(() => {
+    coreWrap.style.filter = "";
+  }, 520);
+}
+
+/* ---------------- THEME, NAV SCROLL, REVEAL & 3D HERO STAGE ---------------- */
+function setColorMode(mode) {
+  document.documentElement.dataset.mode = mode;
+  try {
+    localStorage.setItem("fd-mode", mode);
+  } catch (_) {}
+  const icon = document.getElementById("modeIcon");
+  if (icon) {
+    icon.innerHTML =
+      mode === "light"
+        ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
+        : '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  }
+  renderScoreChart();
+}
+
+function initChromeUX() {
+  const savedMode = document.documentElement.dataset.mode || "dark";
+  setColorMode(savedMode);
+
+  const modeBtn = document.getElementById("modeBtn");
+  if (modeBtn) {
+    modeBtn.onclick = () => {
+      const next = document.documentElement.dataset.mode === "light" ? "dark" : "light";
+      setColorMode(next);
+    };
+  }
+
+  // Smooth scroll & active section spy
+  const nav = document.getElementById("nav");
+  const prog = document.getElementById("prog");
+  const topBtn = document.getElementById("top");
+  const navLinks = document.getElementById("navLinks");
+  const navTog = document.getElementById("navTog");
+
+  const onScroll = () => {
+    const y = window.scrollY;
+    if (nav) nav.classList.toggle("small", y > 24);
+    if (topBtn) topBtn.classList.toggle("on", y > 500);
+    const totalH = document.documentElement.scrollHeight - window.innerHeight;
+    if (prog) prog.style.width = (totalH > 0 ? (y / totalH) * 100 : 0) + "%";
+
+    let currentId = "hero";
+    document.querySelectorAll("#hero, main .sec").forEach((sec) => {
+      if (sec.offsetTop - 180 <= y) currentId = sec.id;
+    });
+    document.querySelectorAll(".nav-link[data-go]").forEach((btn) => {
+      btn.classList.toggle("on", btn.dataset.go === currentId);
+    });
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  if (topBtn) topBtn.onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
+  if (navTog && navLinks) navTog.onclick = () => navLinks.classList.toggle("open");
+
+  document.querySelectorAll("[data-go]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const target = document.getElementById(el.dataset.go);
+      if (target) target.scrollIntoView({ behavior: "smooth" });
+      if (navLinks) navLinks.classList.remove("open");
+    });
+  });
+
+  // Scroll-reveal observer
+  const io = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("in");
+          io.unobserve(entry.target);
+        }
+      });
+    },
+    { rootMargin: "0px 0px -40px 0px" }
+  );
+  document.querySelectorAll(".rv").forEach((el) => io.observe(el));
+
+  // Mouse spotlight glow on `.card.spot`
+  window.addEventListener(
+    "mousemove",
+    (e) => {
+      const card = e.target.closest?.(".card.spot");
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      card.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+      card.style.setProperty("--my", `${e.clientY - rect.top}px`);
+    },
+    { passive: true }
+  );
+
+  // 3D Hero Stage Parallax & Ambient Data Particles
+  const stage = document.getElementById("infraStage");
+  const coreWrap = document.getElementById("coreWrap");
+  const particlesEl = document.getElementById("particles");
+  if (!stage || !coreWrap || !particlesEl) return;
+
+  stage.addEventListener("mousemove", (e) => {
+    const r = stage.getBoundingClientRect();
+    const mx = (e.clientX - (r.left + r.width / 2)) / r.width;
+    const my = (e.clientY - (r.top + r.height / 2)) / r.height;
+    coreWrap.style.transform = `translate3d(${mx * 18}px, ${my * 12}px, 0) rotateX(${my * -6}deg) rotateY(${mx * 10}deg)`;
+    document.querySelectorAll(".mono-block").forEach((b, i) => {
+      const factor = 0.6 + i * 0.15;
+      b.style.setProperty("--px", `${mx * 26 * factor}px`);
+      b.style.setProperty("--py", `${my * 16 * factor}px`);
+    });
+  });
+
+  stage.addEventListener("mouseleave", () => {
+    coreWrap.style.transform = "translate3d(0, 0, 0)";
+    document.querySelectorAll(".mono-block").forEach((b) => {
+      b.style.setProperty("--px", "0px");
+      b.style.setProperty("--py", "0px");
+    });
+  });
+
+  document.querySelectorAll(".mono-block").forEach((b) => {
+    b.addEventListener("mouseenter", () => {
+      coreWrap.style.filter = "brightness(1.4) drop-shadow(0 0 22px rgba(255,255,255,0.4))";
+      coreWrap.style.setProperty("--coreScale", "1.08");
+    });
+    b.addEventListener("mouseleave", () => {
+      coreWrap.style.filter = "";
+      coreWrap.style.setProperty("--coreScale", "1");
+    });
+  });
+
+  const routes = [
+    { sx: 18, sy: 18, ex: 50, ey: 50 },
+    { sx: 82, sy: 18, ex: 50, ey: 50 },
+    { sx: 18, sy: 82, ex: 50, ey: 50 },
+    { sx: 82, sy: 82, ex: 50, ey: 50 },
+  ];
+
+  function spawnHeroParticle() {
+    if (document.hidden) return;
+    const r = routes[Math.floor(Math.random() * routes.length)];
+    const b = stage.getBoundingClientRect();
+    if (b.width <= 0) return;
+    const p = document.createElement("div");
+    p.className = "particle";
+    const x1 = (r.sx / 100) * b.width;
+    const y1 = (r.sy / 100) * b.height;
+    const x2 = (r.ex / 100) * b.width;
+    const y2 = (r.ey / 100) * b.height;
+    p.style.left = `${x1}px`;
+    p.style.top = `${y1}px`;
+    p.style.setProperty("--dx", `${x2 - x1}px`);
+    p.style.setProperty("--dy", `${y2 - y1}px`);
+    p.style.setProperty("--dur", `${(1.3 + Math.random() * 1.5).toFixed(2)}s`);
+    particlesEl.appendChild(p);
+    setTimeout(() => p.remove(), 2900);
+  }
+
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    setInterval(spawnHeroParticle, 240);
+  }
+}
+
+/* ---------------- 60 FPS PIPELINE TOPOLOGY CANVAS ---------------- */
 function spawnPacketParticles(cls, count = 7) {
-  const color = CLASS_COLORS[cls] || "#38bdf8";
+  const color = CLASS_COLORS[cls] || "#e5e5e5";
   for (let i = 0; i < count; i++) {
     state.particles.push({
-      x: 70 - i * 18,
-      y: 43 + (Math.random() - 0.5) * 20,
-      speed: 5.2 + Math.random() * 2.5,
+      x: 75 - i * 18,
+      y: 44 + (Math.random() - 0.5) * 20,
+      speed: 5.4 + Math.random() * 2.4,
       color,
-      r: cls === "Benign" ? 3.2 : 4.6,
+      r: cls === "Benign" ? 3.2 : 4.8,
     });
   }
 }
 
-/* ---------------- 60 FPS TOPOLOGY PIPELINE ANIMATOR ---------------- */
 function startTopologyLoop() {
   const canvas = document.getElementById("topology-canvas");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
 
   const nodes = [
-    { x: 115, label: "Live Clients / Wi-Fi", sub: "HTTP / TCP Streams" },
-    { x: 440, label: "Scapy + ASGI Collector", sub: "27 Flow Features (µs)" },
-    { x: 805, label: "Dual ONNX Runtime", sub: "v1 + v2 (0.015 ms CPU)" },
-    { x: 1145, label: "Live SOC Dashboard", sub: "WebSocket Broadcast" },
+    { x: 115, label: "Live Clients / LAN", sub: "HTTP & TCP Streams" },
+    { x: 430, label: "Scapy + ASGI Collector", sub: "27 Flow Features (µs)" },
+    { x: 785, label: "Dual ONNX Runtime", sub: "v1 Raw + v2 Live CPU" },
+    { x: 1120, label: "Live SOC Broadcast", sub: "WebSocket + Shield 403" },
   ];
 
   function frame() {
     const W = canvas.width;
     const H = canvas.height;
+    const isLight = document.documentElement.dataset.mode === "light";
     ctx.clearRect(0, 0, W, H);
 
-    // Connecting backbone wire
-    ctx.strokeStyle = "rgba(56, 189, 248, 0.25)";
-    ctx.lineWidth = 2;
+    // Connecting steel backbone wire
+    ctx.strokeStyle = isLight ? "rgba(15, 17, 21, 0.18)" : "rgba(255, 255, 255, 0.16)";
+    ctx.lineWidth = 1.8;
     ctx.beginPath();
     ctx.moveTo(nodes[0].x, H / 2);
     ctx.lineTo(nodes[nodes.length - 1].x, H / 2);
     ctx.stroke();
 
-    // Update & render moving flow particles
+    // Moving live packet particles
     for (let i = state.particles.length - 1; i >= 0; i--) {
       const p = state.particles[i];
       p.x += p.speed;
@@ -111,23 +309,23 @@ function startTopologyLoop() {
       ctx.fill();
     }
 
-    // Draw stage boxes
+    // Monochrome steel stage cards
     nodes.forEach((n) => {
-      ctx.fillStyle = "#16203a";
-      ctx.strokeStyle = "#314575";
-      ctx.lineWidth = 1.3;
+      ctx.fillStyle = isLight ? "#ffffff" : "#0e1016";
+      ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.16)" : "rgba(255, 255, 255, 0.16)";
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.roundRect(n.x - 102, 14, 204, 58, 9);
+      ctx.roundRect(n.x - 102, 15, 204, 58, 10);
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = "#e6ecff";
-      ctx.font = "bold 12.5px Inter, sans-serif";
+      ctx.fillStyle = isLight ? "#0f1115" : "#f4f5f7";
+      ctx.font = "700 12.5px Inter, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(n.label, n.x, 38);
 
-      ctx.fillStyle = "#93a3c7";
-      ctx.font = "11px ui-monospace, monospace";
+      ctx.fillStyle = isLight ? "#5b6474" : "#8a8f9a";
+      ctx.font = "10.5px 'JetBrains Mono', ui-monospace, monospace";
       ctx.fillText(n.sub, n.x, 56);
     });
 
@@ -136,7 +334,7 @@ function startTopologyLoop() {
   requestAnimationFrame(frame);
 }
 
-/* ---------------- COMPONENT 1: TOP ALERT BANNER ---------------- */
+/* ---------------- UI RENDERERS ---------------- */
 function renderAlertBanner(latestEvent) {
   const banner = document.getElementById("threat-banner");
   const icon = document.getElementById("banner-icon");
@@ -144,25 +342,24 @@ function renderAlertBanner(latestEvent) {
   const sub = document.getElementById("banner-sub");
 
   if (!latestEvent || !latestEvent.alert) {
-    banner.className = "banner banner-safe";
+    banner.className = "banner-safe";
     icon.className = "pulse-dot dot-green";
     title.textContent = "SYSTEM PROTECTED — LIVE FLOW TELEMETRY NORMAL";
     sub.innerHTML = latestEvent
-      ? `Last flow from <code>${latestEvent.client_ip}</code> classified <strong>Benign</strong> (Attack score: <code>${latestEvent.attack_score.toFixed(4)}</code> &lt; &tau; <code>${state.tau.toFixed(4)}</code>)`
+      ? `Last flow from <code>${latestEvent.client_ip}</code> classified <strong>Benign</strong> (Score: <code>${latestEvent.attack_score.toFixed(4)}</code> &lt; &tau; <code>${state.tau.toFixed(4)}</code>)`
       : `Monitoring FastAPI (:8000) streams — Gate rule: <code>(1 - P(Benign)) &ge; ${state.tau.toFixed(4)}</code>`;
     return;
   }
 
-  banner.className = "banner banner-danger";
+  banner.className = "banner-danger";
   icon.className = "pulse-dot dot-red";
-  title.textContent = `WARNING: ${latestEvent.predicted_class.toUpperCase()} ATTACK DETECTED FROM ${latestEvent.client_ip}!`;
+  title.textContent = `ALERT: ${latestEvent.predicted_class.toUpperCase()} DETECTED FROM ${latestEvent.client_ip}`;
   sub.innerHTML =
-    `Attack Confidence: <strong>${(latestEvent.attack_score * 100).toFixed(2)}%</strong> ` +
+    `Confidence: <strong>${(latestEvent.attack_score * 100).toFixed(2)}%</strong> ` +
     `(Gate &tau; = ${(latestEvent.threshold_tau * 100).toFixed(1)}%) &bull; ` +
     `Endpoint: <code>${latestEvent.path}</code> &bull; Model: <code>${latestEvent.active_model}</code>`;
 }
 
-/* ---------------- COMPONENT 2: HEADER PILLS & CONTROLS ---------------- */
 function renderSystemStatus(snap) {
   if (!snap) return;
   state.status = snap;
@@ -170,23 +367,26 @@ function renderSystemStatus(snap) {
 
   document.getElementById("os-pill").textContent = `Host: ${snap.os}`;
   const lanIp = (snap.lan_ips && snap.lan_ips[0]) || window.location.hostname;
-  const sharePort = window.location.port || "9012";
-  const shareUrl = `http://${lanIp}:${sharePort}`;
+  const sharePort = window.location.port || (window.location.protocol === "https:" ? "443" : "80");
+  const portSuffix = (sharePort === "80" || sharePort === "443") ? "" : `:${sharePort}`;
+  const shareUrl = `${window.location.protocol}//${lanIp}${portSuffix}`;
+
   const lanEl = document.getElementById("lan-pill");
-  lanEl.textContent = `Teacher Wi-Fi URL: ${shareUrl}`;
+  lanEl.textContent = `Frontend URL: ${shareUrl}`;
   lanEl.dataset.shareUrl = shareUrl;
   lanEl.dataset.apiHost = lanIp;
 
   document.getElementById("capture-desc").textContent = snap.capture_engine.description;
   document.getElementById("tau-display").textContent = snap.gate.tau.toFixed(6);
   document.getElementById("tau-slider").value = snap.gate.tau;
+  document.getElementById("hero-tau").textContent = snap.gate.tau.toFixed(4);
 
   const isV2 = snap.models.active_model === "v2_live";
   document.getElementById("mode-v2").classList.toggle("active", isV2);
   document.getElementById("mode-v1").classList.toggle("active", !isV2);
   document.getElementById("model-explain").innerHTML = isV2
-    ? `<strong>v2 Active (Recommended):</strong> Regularized <code>HistGradientBoosting</code> (<code>l2=1.5</code>, max leaf <code>0.32</code>) + cross-flow telemetry. Detects live Wi-Fi, Cloud &amp; CICIDS2017 attacks.`
-    : `<strong>v1 Raw Active (Original Wormhole model.onnx):</strong> Unregularized CICIDS2017 baseline (<code>l2=0.0</code>, max leaf <code>32,935.9</code>). Catches lab traces, but demonstrates live Wi-Fi RTT domain shift!`;
+    ? `<strong>v2 Active (Recommended):</strong> Regularized <code>HistGradientBoosting</code> (<code>l2=1.5</code>, max leaf <code>0.32</code>) + cross-flow telemetry. Detects live LAN/Wi-Fi, Cloud &amp; CICIDS2017 attacks.`
+    : `<strong>v1 Raw Active (Original Wormhole model.onnx):</strong> Unregularized CICIDS2017 baseline (<code>l2=0.0</code>, max leaf <code>32,935.9</code>). Catches lab traces, demonstrates live RTT domain shift.`;
 
   const isEnforce = snap.gate.shield_mode === "enforce";
   document.getElementById("shield-alert").classList.toggle("active", !isEnforce);
@@ -214,26 +414,35 @@ function renderSystemStatus(snap) {
 
 function renderKpis(stats, totalPkts) {
   if (!stats) return;
-  document.getElementById("kpi-total").textContent = stats.total_flows_scored || 0;
+  const total = stats.total_flows_scored || 0;
+  const alerts = stats.total_alerts || 0;
+  document.getElementById("kpi-total").textContent = total;
   document.getElementById("kpi-benign").textContent = stats.Benign || 0;
   document.getElementById("kpi-flood").textContent = stats.Flood || 0;
-  document.getElementById("kpi-bruteforce").textContent = stats.BruteForce || 0;
+  document.getElementById("kpi-bf").textContent = stats.BruteForce || 0;
   document.getElementById("kpi-bot").textContent = stats.Bot || 0;
+
+  document.getElementById("hero-flows").textContent = total;
+  document.getElementById("hero-alerts").textContent = alerts;
+
   if (typeof totalPkts === "number") {
-    document.getElementById("kpi-pkts").textContent = `${totalPkts} segments processed`;
+    state.totalPkts = totalPkts;
   }
+  document.getElementById("kpi-pkts").textContent = `${state.totalPkts} segments processed`;
 }
 
-/* ---------------- COMPONENT 3: LIVE SCORE CANVAS GRAPH ---------------- */
 function renderScoreChart() {
   const canvas = document.getElementById("score-canvas");
+  if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const W = canvas.width;
   const H = canvas.height;
+  const isLight = document.documentElement.dataset.mode === "light";
   ctx.clearRect(0, 0, W, H);
 
   const tauY = H - state.tau * (H - 18) - 9;
-  ctx.strokeStyle = "rgba(239, 68, 68, 0.7)";
+  ctx.strokeStyle = "rgba(239, 68, 68, 0.78)";
+  ctx.lineWidth = 1.4;
   ctx.setLineDash([5, 4]);
   ctx.beginPath();
   ctx.moveTo(0, tauY);
@@ -244,9 +453,9 @@ function renderScoreChart() {
   const pts = state.scoreHistory.slice(-50);
   if (pts.length === 0) return;
 
-  const stepX = W / Math.max(pts.length, 12);
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "#38bdf8";
+  const stepX = (W - 20) / Math.max(pts.length - 1, 11);
+  ctx.lineWidth = 1.9;
+  ctx.strokeStyle = isLight ? "#1f242c" : "rgba(229, 231, 235, 0.72)";
   ctx.beginPath();
   pts.forEach((item, idx) => {
     const x = idx * stepX + 10;
@@ -259,23 +468,23 @@ function renderScoreChart() {
   pts.forEach((item, idx) => {
     const x = idx * stepX + 10;
     const y = H - item.score * (H - 18) - 9;
-    ctx.fillStyle = CLASS_COLORS[item.cls] || "#38bdf8";
+    ctx.fillStyle = CLASS_COLORS[item.cls] || "#e5e5e5";
     ctx.beginPath();
-    ctx.arc(x, y, item.alert ? 4.5 : 3, 0, Math.PI * 2);
+    ctx.arc(x, y, item.alert ? 4.5 : 3.1, 0, Math.PI * 2);
     ctx.fill();
   });
 }
 
-/* ---------------- COMPONENT 4: FLOW TABLE & 27-FEATURE INSPECTOR ---------------- */
 function renderFlowTable() {
   const tbody = document.getElementById("flow-tbody");
+  if (!tbody) return;
   if (state.events.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No flows scored yet — click any traffic button above or send live requests to Port 8000!</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No flows scored yet — launch traffic above or run any external tool against Port 8000.</td></tr>`;
     return;
   }
 
   tbody.innerHTML = state.events
-    .slice(0, 45)
+    .slice(0, 50)
     .map((ev) => {
       const sel = ev.id === state.selectedEventId ? "selected" : "";
       const v1c = ev.comparison.v1_raw.predicted_class;
@@ -289,8 +498,10 @@ function renderFlowTable() {
           <td><span class="tag tag-${ev.predicted_class}">${ev.predicted_class}</span></td>
           <td><strong>${(ev.attack_score * 100).toFixed(1)}%</strong></td>
           <td>
-            <span class="tag tag-${v1c}" title="Original model.onnx">v1:${v1c}</span>
-            <span class="tag tag-${v2c}" title="Fixed model_v2_live.onnx">v2:${v2c}</span>
+            <div class="dual-tags">
+              <span class="tag tag-${v1c}" title="Original model.onnx">v1:${v1c}</span>
+              <span class="tag tag-${v2c}" title="Fixed model_v2_live.onnx">v2:${v2c}</span>
+            </div>
           </td>
           <td><code>${ev.latency_ms.toFixed(2)}ms</code></td>
         </tr>`;
@@ -325,7 +536,7 @@ function renderInspector(ev) {
         <div class="prob-row">
           <strong>${cls}</strong>
           <div class="prob-track">
-            <div class="prob-fill" style="width:${Math.max(1, p * 100)}%;background:${CLASS_COLORS[cls]}"></div>
+            <div class="prob-fill" style="width:${Math.max(1.2, p * 100)}%;background:${CLASS_COLORS[cls]}"></div>
           </div>
           <span>${pct}%</span>
         </div>`;
@@ -345,7 +556,7 @@ function renderInspector(ev) {
     .join("");
 }
 
-/* ---------------- MANUAL 27-FEATURE LAB TESTER ---------------- */
+/* ---------------- MANUAL 27-FEATURE SANDBOX MODAL ---------------- */
 function openManualLab(prefillMap) {
   const modal = document.getElementById("lab-modal");
   const grid = document.getElementById("lab-inputs");
@@ -376,6 +587,7 @@ window.unblockIp = async function unblockIp(ip) {
     method: "POST",
   });
   showToast(`Unblocked IP ${ip}`);
+  appendStreamLog(`Active Shield unblocked client IP ${ip} -> HTTP 200 restored`, "ok");
   await refreshStatus();
 };
 
@@ -385,7 +597,11 @@ async function patchConfig(body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (res.ok) renderSystemStatus(await res.json());
+  if (res.ok) {
+    const snap = await res.json();
+    renderSystemStatus(snap);
+    renderScoreChart();
+  }
 }
 
 async function refreshStatus() {
@@ -399,6 +615,7 @@ async function refreshStatus() {
       .slice()
       .reverse()
       .map((e) => ({ score: e.attack_score, cls: e.predicted_class, alert: e.alert }));
+    document.getElementById("hero-latency").textContent = `${state.events[0].latency_ms.toFixed(2)}ms`;
     renderFlowTable();
     renderInspector(state.events[0]);
     renderScoreChart();
@@ -407,20 +624,29 @@ async function refreshStatus() {
   renderSystemStatus(snap);
 }
 
+/* ---------------- REAL-TIME WEBSOCKET ENGINE ---------------- */
 function connectWebSocket() {
   const pill = document.getElementById("ws-pill");
   const ws = new WebSocket(window.FlowDetectConfig.wsUrl);
   state.ws = ws;
 
   ws.onopen = () => {
-    pill.textContent = "Live WebSocket: Connected";
-    pill.className = "pill pill-ok";
+    pill.textContent = "Live WS: Connected";
+    pill.className = "nav-pill nav-pill-ok";
+    appendStreamLog(`WebSocket connected -> ${window.FlowDetectConfig.wsUrl} (Dual ONNX ready)`, "ok");
   };
 
   ws.onmessage = (msg) => {
     const data = JSON.parse(msg.data);
-    if (data.type === "hello" || data.type === "config_updated") {
+    if (data.type === "hello") {
       renderSystemStatus(data.status);
+    } else if (data.type === "config_updated") {
+      renderSystemStatus(data.status);
+      renderScoreChart();
+      appendStreamLog(
+        `Engine config synced -> model=${data.status.models.active_model}, shield=${data.status.gate.shield_mode}, tau=${data.status.gate.tau.toFixed(4)}`,
+        "info"
+      );
     } else if (data.type === "reset") {
       state.events = [];
       state.scoreHistory = [];
@@ -430,6 +656,7 @@ function connectWebSocket() {
       renderInspector(null);
       renderScoreChart();
       renderAlertBanner(null);
+      appendStreamLog("Stream reset -> cleared active flow sessions and counters", "ok");
       showToast("Cleared stream history and counters");
     } else if (data.type === "flow_event") {
       const ev = data.event;
@@ -437,13 +664,31 @@ function connectWebSocket() {
       if (state.events.length > 80) state.events.pop();
       state.scoreHistory.push({ score: ev.attack_score, cls: ev.predicted_class, alert: ev.alert });
       state.selectedEventId = ev.id;
+      state.totalPkts += ev.total_pkts || 0;
+      document.getElementById("hero-latency").textContent = `${ev.latency_ms.toFixed(2)}ms`;
+
       spawnPacketParticles(ev.predicted_class, ev.alert ? 9 : 4);
+      pulseHeroCore(ev.predicted_class, ev.alert);
       if (ev.alert) playAlertTone();
+
+      const logLevel = !ev.alert
+        ? "ok"
+        : ev.predicted_class === "Flood"
+        ? "err"
+        : ev.predicted_class === "BruteForce"
+        ? "warn"
+        : "bot";
+      appendStreamLog(
+        `${ev.alert ? "ALERT" : "FLOW"} ${ev.client_ip} -> ${ev.path} | pkts=${ev.total_pkts} | verdict=${ev.predicted_class} (${(ev.attack_score * 100).toFixed(1)}%) | v1=${ev.comparison.v1_raw.predicted_class} v2=${ev.comparison.v2_live.predicted_class} | ${ev.latency_ms.toFixed(2)}ms`,
+        logLevel
+      );
+
       renderAlertBanner(ev);
       renderKpis(data.stats);
       renderFlowTable();
       renderInspector(ev);
       renderScoreChart();
+
       if (state.status && state.status.gate.shield_mode === "enforce" && ev.alert) {
         refreshStatus();
       }
@@ -452,12 +697,14 @@ function connectWebSocket() {
 
   ws.onclose = () => {
     pill.textContent = "WS Reconnecting...";
-    pill.className = "pill pill-warn";
+    pill.className = "nav-pill nav-pill-warn";
     setTimeout(connectWebSocket, 1800);
   };
 }
 
+/* ---------------- APPLICATION BOOTSTRAP ---------------- */
 async function initApp() {
+  initChromeUX();
   startTopologyLoop();
   await window.FlowDetectConfig.init();
   await refreshStatus();
@@ -471,7 +718,10 @@ async function initApp() {
   document.getElementById("tau-slider").onchange = (e) =>
     patchConfig({ tau: parseFloat(e.target.value) });
   document.getElementById("tau-slider").oninput = (e) => {
-    document.getElementById("tau-display").textContent = parseFloat(e.target.value).toFixed(6);
+    const v = parseFloat(e.target.value);
+    document.getElementById("tau-display").textContent = v.toFixed(6);
+    state.tau = v;
+    renderScoreChart();
   };
 
   document.getElementById("btn-sound").onclick = (e) => {
@@ -484,11 +734,16 @@ async function initApp() {
     await fetch(`${window.FlowDetectConfig.apiBase}/api/security/reset`, { method: "POST" });
   };
 
+  document.getElementById("btn-clear-log").onclick = () => {
+    document.getElementById("live-log").innerHTML = "";
+    appendStreamLog("Event log cleared", "info");
+  };
+
   document.getElementById("lan-pill").onclick = (e) => {
     const url = e.currentTarget.dataset.shareUrl;
     if (url && navigator.clipboard) {
       navigator.clipboard.writeText(url);
-      showToast(`Copied Wi-Fi Dashboard URL: ${url}`);
+      showToast(`Copied Frontend URL: ${url}`);
     }
   };
 
@@ -500,12 +755,20 @@ async function initApp() {
   };
 
   document.getElementById("btn-open-lab").onclick = () => openManualLab();
+  document.getElementById("hero-open-lab").onclick = () => openManualLab();
   document.getElementById("btn-edit-selected").onclick = () => {
     const cur = state.events.find((e) => e.id === state.selectedEventId);
     openManualLab(cur ? cur.all_features : null);
   };
-  document.getElementById("btn-close-lab").onclick = () =>
-    document.getElementById("lab-modal").classList.add("hidden");
+
+  const closeLab = () => document.getElementById("lab-modal").classList.add("hidden");
+  document.getElementById("btn-close-lab").onclick = closeLab;
+  document.getElementById("lab-modal").addEventListener("click", (e) => {
+    if (e.target.id === "lab-modal") closeLab();
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeLab();
+  });
 
   document.getElementById("btn-run-manual").onclick = async () => {
     const features = {};
@@ -519,7 +782,7 @@ async function initApp() {
     });
     if (res.ok) {
       const ev = await res.json();
-      document.getElementById("lab-modal").classList.add("hidden");
+      closeLab();
       showToast(`Scored 27 features -> ${ev.predicted_class} (${(ev.attack_score * 100).toFixed(1)}%)`);
     }
   };
@@ -532,7 +795,7 @@ async function initApp() {
           `${window.FlowDetectConfig.apiBase}/api/security/simulate/${btn.dataset.sim}`,
           { method: "POST" }
         );
-        showToast(`Executed scenario: ${btn.dataset.sim}`);
+        showToast(`Executed live scenario: ${btn.dataset.sim}`);
       } finally {
         btn.disabled = false;
       }

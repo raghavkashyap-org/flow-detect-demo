@@ -1,10 +1,11 @@
 /**
- * Auto-Discovery Backend Configuration (`config.js`)
+ * FlowDetect Universal Backend Auto-Discovery (`config.js`)
  *
- * Works with ZERO manual IP edits across ALL 3 environments:
- *  1. `frontend_server.py` proxy on Port 9012 / Cloud / HTTPS Preview -> uses same-origin `/api` & `/ws/live`
- *  2. Plain `python -m http.server 9012` on Wi-Fi (`http://192.168.62.52:9012`) -> auto-discovers `http://192.168.62.52:8000`!
- *  3. Optional URL query override `?api=http://192.168.62.52:8000`
+ * Works seamlessly with zero manual IP edits across every deployment setup:
+ *   1. Explicit URL parameter override (`?api=http://203.0.113.10:8000`)
+ *   2. Same-origin reverse proxy (`frontend_server.py` on :9012 / Nginx / HTTPS preview)
+ *   3. Any static HTTP server port on LAN / Windows / Linux (`http.server 9090`, `5500`, `3000`, Vite)
+ *      -> automatically targets `http://<window.location.hostname>:8000` & `ws://<hostname>:8000/ws/live`
  */
 window.FlowDetectConfig = {
   apiBase: "",
@@ -20,20 +21,21 @@ window.FlowDetectConfig = {
       return this;
     }
 
-    // First probe relative `/api/security/status` (works on frontend_server.py proxy & HTTPS previews)
+    // Tier 1: Probe relative `/api/security/status` (reverse proxy mode)
     try {
       const res = await fetch("/api/security/status", { cache: "no-store" });
-      if (res.ok) {
+      const ctype = res.headers.get("content-type") || "";
+      if (res.ok && ctype.includes("application/json")) {
         this.apiBase = "";
         const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
         this.wsUrl = `${proto}//${window.location.host}/ws/live`;
         return this;
       }
     } catch (_) {
-      // Fall through to port 8000 on current hostname (e.g. `python -m http.server 9012`)
+      // Expected on standalone static servers (`http.server`, `http-server`, Vite)
     }
 
-    // Fallback for plain `python -m http.server 9012` on `192.168.62.52` or Cloud VM IP!
+    // Tier 2: Direct LAN / localhost / Cloud host on port 8000
     const host = window.location.hostname || "127.0.0.1";
     const httpProto = window.location.protocol === "https:" ? "https:" : "http:";
     const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";

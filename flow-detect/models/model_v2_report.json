@@ -1,52 +1,52 @@
 {
   "name": "flow-detect-hgb-live-v2-onnx",
   "file": "model_v2_live.onnx",
-  "sha256": "46d42d99119fd813584ed45bbf05a418c27bfeba7b2de82c65820dc6392d4f84",
-  "bytes": 1232974,
+  "sha256": "0fe96a52f2b2388ff63b748f03b4bb9e23a0cbfecafbdcbc05d247d9964dcabd",
+  "bytes": 1223690,
   "fixes_applied": [
     "Fixed l2_regularization from 0.0 -> 1.5 (max leaf magnitude dropped from 32,935.94 down to bounded range)",
     "Retained distilled CICIDS2017 multi-family patterns alongside live LAN/Wi-Fi/Cloud FlowSession streams",
     "Identical ONNX Opset 15 contract: X float32[None, 27] -> label, probabilities"
   ],
-  "n_iter_actual": 134,
+  "n_iter_actual": 133,
   "max_abs_leaf_weight": 0.3194,
-  "onnx_parity_max_diff": 1.6567385419108405e-07,
+  "onnx_parity_max_diff": 1.6744024633474908e-07,
   "heldout_metrics": {
     "Benign": {
-      "precision": 0.9861861861861861,
-      "recall": 0.9658823529411765,
-      "f1-score": 0.97592867756315,
+      "precision": 0.9861612515042117,
+      "recall": 0.9641176470588235,
+      "f1-score": 0.9750148720999405,
       "support": 1700.0
     },
     "Bot": {
-      "precision": 0.9871495327102804,
-      "recall": 0.9941176470588236,
-      "f1-score": 0.9906213364595545,
+      "precision": 0.9848396501457726,
+      "recall": 0.9935294117647059,
+      "f1-score": 0.9891654465592972,
       "support": 1700.0
     },
     "BruteForce": {
-      "precision": 0.9853968253968254,
-      "recall": 0.9885350318471338,
-      "f1-score": 0.9869634340222575,
+      "precision": 0.9823008849557522,
+      "recall": 0.9898089171974522,
+      "f1-score": 0.9860406091370558,
       "support": 1570.0
     },
     "Flood": {
-      "precision": 0.9796274738067521,
-      "recall": 0.99,
-      "f1-score": 0.9847864248098304,
+      "precision": 0.9807130333138515,
+      "recall": 0.9870588235294118,
+      "f1-score": 0.9838756962767516,
       "support": 1700.0
     },
-    "accuracy": 0.9845577211394303,
+    "accuracy": 0.9835082458770614,
     "macro avg": {
-      "precision": 0.9845900045250109,
-      "recall": 0.9846337579617834,
-      "f1-score": 0.9845749682136982,
+      "precision": 0.983503704979897,
+      "recall": 0.9836286998875983,
+      "f1-score": 0.9835241560182613,
       "support": 6670.0
     },
     "weighted avg": {
-      "precision": 0.9845742793805828,
-      "recall": 0.9845577211394303,
-      "f1-score": 0.9845284164063349,
+      "precision": 0.9835271482487333,
+      "recall": 0.9835082458770614,
+      "f1-score": 0.983475109705601,
       "support": 6670.0
     }
   }
