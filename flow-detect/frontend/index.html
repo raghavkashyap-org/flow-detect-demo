@@ -279,7 +279,7 @@
               <label class="group-label">Active ONNX Model (Compare Original vs Fixed Live)</label>
               <div class="seg-toggle">
                 <button id="mode-v2" class="seg-btn active">v2 Fixed Live ONNX + Host Guard</button>
-                <button id="mode-v1" class="seg-btn">v1 Original model.onnx</button>
+                <button id="mode-v1" class="seg-btn">v1 Original Wormhole model.onnx</button>
               </div>
               <p id="model-explain" class="hint-text">
                 <strong>v2 Active:</strong> Regularized <code>HistGradientBoosting</code> (<code>l2=1.5</code>, max leaf <code>0.32</code>) + cross-flow host telemetry. Detects live LAN/Wi-Fi, Cloud &amp; CICIDS2017 attacks.
@@ -437,7 +437,10 @@
         <div class="card spot log-card rv">
           <div class="card-head">
             <h3 class="card-title">Live Detection Event Stream</h3>
-            <button id="btn-clear-log" class="btn btn-ghost btn-sm">Clear Log</button>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span id="log-scroll-pill" class="chip chip-ok">Auto-Scroll: Live</span>
+              <button id="btn-clear-log" class="btn btn-ghost btn-sm">Clear Log</button>
+            </div>
           </div>
           <div class="log" id="live-log"></div>
         </div>
@@ -478,15 +481,20 @@
   <!-- INTERACTIVE MANUAL 27-FEATURE SANDBOX MODAL -->
   <div id="lab-modal" class="modal-backdrop hidden">
     <div class="modal-card">
-      <div class="card-head">
-        <h3 class="card-title">Interactive 27-Feature ONNX Sandbox (Direct Tensor Scoring)</h3>
+      <div class="modal-head">
+        <div>
+          <h3 class="card-title">Interactive 27-Feature ONNX Sandbox (Direct Tensor Scoring)</h3>
+          <p class="hint-text" style="margin-top:3px">
+            Edit any of the 27 model features below and run real-time inference across both <code>v1_raw</code> and <code>v2_live</code> ONNX models:
+          </p>
+        </div>
         <button id="btn-close-lab" class="btn btn-ghost btn-sm">Close</button>
       </div>
-      <p class="hint-text" style="margin-top:0">
-        Edit any of the 27 model input features below and run real-time inference across both <code>v1_raw</code> and <code>v2_live</code> ONNX models:
-      </p>
-      <div id="lab-inputs" class="lab-grid"></div>
+      <div class="modal-body">
+        <div id="lab-inputs" class="lab-grid"></div>
+      </div>
       <div class="modal-footer">
+        <button id="btn-zero-lab" class="btn btn-ghost btn-sm" type="button">Zero All Features</button>
         <button id="btn-run-manual" class="btn btn-primary">Score 27 Features on ONNX Now</button>
       </div>
     </div>

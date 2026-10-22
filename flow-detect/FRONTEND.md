@@ -57,8 +57,9 @@ flow-detect/
 
 ### E. Section `03` — Real-Time Flows, 27-Feature Inspector & Terminal Stream (`#live-console`)
 - **8-Column Live Flows Table (`#flow-tbody`):** Zero-horizontal-scroll table displaying `Time`, `Source IP`, `Endpoint`, `Pkts`, `Verdict`, `Score`, stacked `v1 / v2` model comparison badges, and sub-millisecond ONNX CPU `Lat`.
-- **27-Feature & 4-Class Probability Inspector:** Displays exact `Benign`, `Flood`, `BruteForce`, and `Bot` softmax/tree probabilities, all 27 indexed `float32[1, 27]` features, and a **`Load into Tester`** button (`#btn-edit-selected`) that pre-fills the **Interactive 27-Feature ONNX Sandbox Modal (`#lab-modal`)**.
-- **Live Detection Event Stream (`#live-log`):** Real-time color-coded SOC event terminal logging WebSocket state transitions, config updates, and per-flow ONNX verdicts.
+- **27-Feature & 4-Class Probability Inspector:** Displays exact `Benign`, `Flood`, `BruteForce`, and `Bot` probabilities, extracted `float32[1, 27]` features, and a **`Load into Tester`** button (`#btn-edit-selected`) that opens the **4-Column Compact 27-Feature ONNX Sandbox Modal (`#lab-modal`)** with sticky header, `Zero All Features` reset, and sticky `Score 27 Features on ONNX Now` footer (zero vertical scroll needed on standard laptop displays).
+- **Live Detection Event Stream (`#live-log`):** Real-time color-coded SOC event terminal with automatic **Hover-Pause** (`Auto-Scroll: Live` $\leftrightarrow$ `Hover Paused`) so high-rate streams never jump while inspecting log lines.
+- **Native Cross-Platform Dark Glass Scrollbars:** Uses `:root { color-scheme: dark }` + custom `5px` translucent pill `::-webkit-scrollbar` tracks (`::-webkit-scrollbar-button { display: none }`, transparent track, subtle edge fade masks, and `@supports not selector(::-webkit-scrollbar)` Firefox fallback) to eliminate bright white Windows Chrome/Edge scroll strips and arrow buttons everywhere.
 
 ---
 

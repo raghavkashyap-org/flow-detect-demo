@@ -22,6 +22,7 @@ const state = {
   particles: [],
   tau: 0.921056,
   totalPkts: 0,
+  logPaused: false,
   ws: null,
   toastTimer: null,
 };
@@ -58,8 +59,10 @@ function appendStreamLog(message, level = "info") {
   line.className = "log-line";
   line.innerHTML = `<span class="log-time">[${now}]</span><span style="color:${colorMap[level] || colorMap.info}">${message}</span>`;
   log.appendChild(line);
-  log.scrollTop = log.scrollHeight;
-  while (log.children.length > 80) {
+  if (!state.logPaused) {
+    log.scrollTop = log.scrollHeight;
+  }
+  while (log.children.length > 100) {
     log.removeChild(log.firstChild);
   }
 }
@@ -734,6 +737,24 @@ async function initApp() {
     await fetch(`${window.FlowDetectConfig.apiBase}/api/security/reset`, { method: "POST" });
   };
 
+  const logEl = document.getElementById("live-log");
+  const logPill = document.getElementById("log-scroll-pill");
+  logEl.addEventListener("mouseenter", () => {
+    state.logPaused = true;
+    if (logPill) {
+      logPill.textContent = "Hover Paused";
+      logPill.className = "chip chip-warn";
+    }
+  });
+  logEl.addEventListener("mouseleave", () => {
+    state.logPaused = false;
+    logEl.scrollTop = logEl.scrollHeight;
+    if (logPill) {
+      logPill.textContent = "Auto-Scroll: Live";
+      logPill.className = "chip chip-ok";
+    }
+  });
+
   document.getElementById("btn-clear-log").onclick = () => {
     document.getElementById("live-log").innerHTML = "";
     appendStreamLog("Event log cleared", "info");
@@ -763,6 +784,12 @@ async function initApp() {
 
   const closeLab = () => document.getElementById("lab-modal").classList.add("hidden");
   document.getElementById("btn-close-lab").onclick = closeLab;
+  document.getElementById("btn-zero-lab").onclick = () => {
+    document.querySelectorAll("#lab-inputs input").forEach((inp) => {
+      inp.value = "0";
+    });
+    showToast("Reset all 27 sandbox inputs to 0");
+  };
   document.getElementById("lab-modal").addEventListener("click", (e) => {
     if (e.target.id === "lab-modal") closeLab();
   });
